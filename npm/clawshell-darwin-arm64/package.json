@@ -1,0 +1,12 @@
+{
+  "name": "@runta-dev/clawshell-darwin-arm64",
+  "version": "0.1.0",
+  "description": "ClawShell binary for macOS ARM64 (Apple Silicon)",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/runta-dev/clawshell.git"
+  },
+  "os": ["darwin"],
+  "cpu": ["arm64"]
+}

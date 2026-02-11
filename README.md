@@ -32,12 +32,55 @@ Protecting API keys is critical. ClawShell ensures your tokens are tightly manag
 - **Sidecar / Gateway Mode**: Deploys alongside OpenClaw without requiring code changes—like strapping on a harness.
 - **Runta Ecosystem**: Native integration with Runta's broader security suite.
 
-## 🛠️ Getting Started
+## Architecture
 
-### Prerequisites
-- OpenClaw v2.0+
-- Docker or Kubernetes environment
+```
+                               ║ security boundary (Unix File System Permissions)
+                               ║
+                               ║  ┌─────────────────-─┐
+                               ║  │  /etc/clawshell   │
+                               ║  │  ┄ real API keys  │
+                               ║  │  ┄ DLP patterns   │
+                               ║  │  ┄ rate limits    │
+                               ║  └────────┬─────────-┘
+                               ║     reads │
+                               ║  ┌────────┴─────────-┐
+  ┌──────────────┐  REQUEST    ║  │                   │   REQUEST       ┌────────────┐
+  │              ├──(virtual───╫─►│    ClawShell      ├──-(real key,───►│            │
+  │   OpenClaw   │   key)      ║  │                   │   PII redacted) │   OpenAI   │
+  │              │             ║  │  DLP scan         │                 │     or     │
+  │ holds only   │  RESPONSE   ║  │  rate limit       │   RESPONSE      │  Anthropic │
+  │ virtual keys │◄─-----------║◄─┤  real-key mapping │◄─-----------────┤            │
+  │              │             ║  │                   │                 │            │
+  └──────────────┘             ║  └──────────────────-┘                 └────────────┘
+                               ║
+```
 
-### Installation
+OpenClaw only holds virtual keys and cannot access the 
+real API keys(and sensitive data) stored in the privileged config.
+ClawShell swaps virtual keys for real ones,
+scans for PII, and enforces rate limits.
 
-Deploy ClawShell quickly using Docker:
+## Installation
+
+```bash
+npm install -g @runta/clawshell
+
+clawshell onboard
+```
+
+## Build from Source
+
+```bash
+cargo build --release
+ls -al target/release/clawshell
+```
+
+### Cross-compile on Linux/arm64
+
+```bash
+wget https://musl.cc/x86_64-linux-musl-cross.tgz -O /tmp/musl-cross.tgz
+tar -xzf /tmp/musl-cross.tgz -C /tmp
+CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER="/tmp/x86_64-linux-musl-cross/bin/x86_64-linux-musl-gcc" \
+cargo build --release --target x86_64-unknown-linux-musl
+```

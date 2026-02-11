@@ -1,0 +1,24 @@
+{
+  "name": "@runta-dev/clawshell",
+  "version": "0.1.0",
+  "description": "The essential safety harness for OpenClaw's PII & API data",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/runta-dev/clawshell.git"
+  },
+  "homepage": "https://github.com/runta-dev/clawshell",
+  "bin": {
+    "clawshell": "bin/clawshell.js"
+  },
+  "optionalDependencies": {
+    "@runta-dev/clawshell-darwin-arm64": "0.1.0",
+    "@runta-dev/clawshell-linux-arm64": "0.1.0",
+    "@runta-dev/clawshell-linux-x64": "0.1.0"
+  },
+  "engines": {
+    "node": ">=16"
+  },
+  "keywords": [
+  ]
+}
