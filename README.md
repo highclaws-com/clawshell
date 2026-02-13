@@ -33,7 +33,7 @@ ClawShell scans HTTP request and response bodies for sensitive data using config
 
 ### 3. Seamless Integration
 
-- **Transparent Proxy**: Deploys alongside OpenClaw without requiring code changes — configure OpenClaw to point at ClawShell's address and it forwards all requests upstream.
+- **Drop-in Sidecar**: Deploys alongside OpenClaw without requiring re-install — the `clawshell onboard` command automatically configure OpenClaw to point at ClawShell's address and it forwards all requests upstream.
 - **No External Dependencies**: Uses Unix file system permissions to protect secrets. No IdP, Vault, or external key management service required.
 
 ### 4. Ultra Lightweight and Scalable
@@ -58,7 +58,7 @@ ClawShell scans HTTP request and response bodies for sensitive data using config
   │   OpenClaw   │   key)      ║  │                    │   PII redacted) │   OpenAI   │
   │              │             ║  │  DLP scan          │                 │     or     │
   │ holds only   │  RESPONSE   ║  │  real-key mapping  │   RESPONSE      │  Anthropic │
-  │ virtual keys │◄────────────║◄─┤                    │◄───────────────┤            │
+  │ virtual keys │◄────────────║◄─┤                    │◄────────────────┤            │
   │              │             ║  │                    │                 │            │
   └──────────────┘             ║  └────────────────────┘                 └────────────┘
                                ║
@@ -122,7 +122,7 @@ The `onboard` command is an interactive setup wizard that must be run with `sudo
 sudo clawshell onboard
 ```
 
-### More Commands (advanced usage)
+### More Commands
 
 ```bash
 # Start (daemonizes by default)
