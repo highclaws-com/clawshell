@@ -10,27 +10,32 @@
 
 ## 📖 Introduction
 
-**ClawShell** is the security middleware designed to strap onto the **OpenClaw** ecosystem. Just as a safety harness prevents falls, ClawShell prevents data from slipping through the cracks.
+**ClawShell** is a security middleware proxy for the **OpenClaw** ecosystem. It sits between OpenClaw and upstream LLM API providers (OpenAI, Anthropic), performing virtual-to-real API key mapping and DLP (Data Loss Prevention) scanning on request and response bodies.
 
-It wraps your OpenClaw instance in a protective layer, utilizing intelligent traffic analysis to detect, intercept, and secure sensitive **Personally Identifiable Information (PII)** and **API Access Tokens** in real-time. It ensures that even if your application logic slips, your data remains secure.
+OpenClaw never holds real API keys — only virtual keys that ClawShell swaps for real ones before forwarding requests upstream. Real keys are stored in a privileged config directory (`/etc/clawshell`) protected by Unix file system permissions.
 
-## ✨ Key Features
+## Key Features
 
-### 🔒 1. PII Safety Net (DLP)
-ClawShell acts as a final check for all outbound traffic, identifying sensitive information (e.g., phone numbers, government IDs, emails) before it leaves your perimeter.
-- **Real-time Masking**: Redact PII data dynamically in HTTP responses and logs.
-- **Compliance Enforcement**: seamlessly aligns your OpenClaw instance with GDPR, CCPA, and SOC2 requirements.
-- **Custom Patterns**: Define specific sensitive data fields using Regex or NLP models to suit your domain.
+### 1. API Token Secure Binding
 
-### 🔑 2. API Token Secure Binding
-Protecting API keys is critical. ClawShell ensures your tokens are tightly managed.
-- **Leak Prevention**: Scans outbound bodies and headers to prevent accidental token exposure to clients.
-- **Access Control**: Implements strict role-based token validation and rate limiting.
-- **Anomaly Circuit Breaker**: Automatically cuts the connection if suspicious token usage or irregular geographic access is detected.
+ClawShell maps virtual API keys to real provider keys so that OpenClaw never has direct access to real credentials.
 
-### 🚀 3. Seamless Integration
-- **Sidecar / Gateway Mode**: Deploys alongside OpenClaw without requiring code changes—like strapping on a harness.
-- **Runta Ecosystem**: Native integration with Runta's broader security suite.
+- **Key Isolation**: Real API keys are stored in `/etc/clawshell/clawshell.toml`, readable only by the `clawshell` system user. OpenClaw holds only virtual keys.
+- **Multi-Provider Support**: Maps keys to OpenAI or Anthropic, injecting the correct authentication header format (`Authorization: Bearer` for OpenAI, `x-api-key` for Anthropic).
+
+### 2. PII Safety Net (DLP)
+
+ClawShell scans HTTP request and response bodies for sensitive data using configurable regex patterns.
+
+- **Request Scanning**: Detects PII (SSNs, credit card numbers, emails, etc.) in outbound requests. Patterns can be configured to either block the request or redact the matched text before forwarding.
+- **Response Scanning**: Optionally scans upstream responses and redacts detected PII before returning to OpenClaw. Streaming (SSE) responses are passed through without scanning.
+- **Custom Patterns**: Define sensitive data patterns using regex in the TOML config, each with a `block` or `redact` action.
+
+### 3. Seamless Integration
+
+- **Transparent Proxy**: Deploys alongside OpenClaw without requiring code changes — configure OpenClaw to point at ClawShell's address and it forwards all requests upstream.
+- **No External Dependencies**: Uses Unix file system permissions to protect secrets. No IdP, Vault, or external key management service required.
+- **SSE Streaming Pass-Through**: Proxies streaming responses without buffering.
 
 ## Architecture
 
@@ -41,7 +46,6 @@ Protecting API keys is critical. ClawShell ensures your tokens are tightly manag
                                ║  │  /etc/clawshell   │
                                ║  │  ┄ real API keys  │
                                ║  │  ┄ DLP patterns   │
-                               ║  │  ┄ rate limits    │
                                ║  └────────┬─────────-┘
                                ║     reads │
                                ║  ┌────────┴─────────-┐
@@ -49,24 +53,25 @@ Protecting API keys is critical. ClawShell ensures your tokens are tightly manag
   │              ├──(virtual───╫─►│    ClawShell      ├──-(real key,───►│            │
   │   OpenClaw   │   key)      ║  │                   │   PII redacted) │   OpenAI   │
   │              │             ║  │  DLP scan         │                 │     or     │
-  │ holds only   │  RESPONSE   ║  │  rate limit       │   RESPONSE      │  Anthropic │
-  │ virtual keys │◄─-----------║◄─┤  real-key mapping │◄─-----------────┤            │
+  │ holds only   │  RESPONSE   ║  │  real-key mapping │   RESPONSE      │  Anthropic │
+  │ virtual keys │◄─-----------║◄─┤                   │◄─-----------────┤            │
   │              │             ║  │                   │                 │            │
   └──────────────┘             ║  └──────────────────-┘                 └────────────┘
                                ║
 ```
 
-OpenClaw only holds virtual keys and cannot access the 
-real API keys(and sensitive data) stored in the privileged config.
-ClawShell swaps virtual keys for real ones,
-scans for PII, and enforces rate limits.
+OpenClaw only holds virtual keys and cannot access the
+real API keys stored in the privileged config.
+ClawShell swaps virtual keys for real ones and
+scans for PII before forwarding requests upstream.
 
 ## Installation
 
 ```bash
-npm install -g @runta/clawshell
+npm install -g @clawshell/clawshell
 
-clawshell onboard
+# Require privilege to setup security boundary
+sudo clawshell onboard
 ```
 
 ## Build from Source
