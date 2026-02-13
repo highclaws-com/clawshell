@@ -40,7 +40,7 @@ for pkg in "${PLATFORMS[@]}"; do
 done
 
 # Publish the main wrapper package last
-echo "==> Publishing @runta-dev/clawshell..."
+echo "==> Publishing @clawshell/clawshell..."
 (cd "${SCRIPT_DIR}/clawshell" && npm publish --access public $DRY_RUN)
 
 echo "==> Done!"

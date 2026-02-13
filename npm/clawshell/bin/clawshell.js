@@ -4,9 +4,9 @@ const { execFileSync } = require("child_process");
 const path = require("path");
 
 const PLATFORMS = {
-  "darwin-arm64": "@runta-dev/clawshell-darwin-arm64",
-  "linux-arm64": "@runta-dev/clawshell-linux-arm64",
-  "linux-x64": "@runta-dev/clawshell-linux-x64",
+  "darwin-arm64": "@clawshell/clawshell-darwin-arm64",
+  "linux-arm64": "@clawshell/clawshell-linux-arm64",
+  "linux-x64": "@clawshell/clawshell-linux-x64",
 };
 
 const platform = `${process.platform}-${process.arch}`;

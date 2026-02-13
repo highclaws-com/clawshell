@@ -1,11 +1,11 @@
 {
-  "name": "@runta-dev/clawshell-linux-arm64",
+  "name": "@clawshell/clawshell-linux-arm64",
   "version": "0.1.0",
   "description": "ClawShell binary for Linux ARM64",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/runta-dev/clawshell.git"
+    "url": "https://github.com/clawshell/clawshell.git"
   },
   "os": ["linux"],
   "cpu": ["arm64"]
