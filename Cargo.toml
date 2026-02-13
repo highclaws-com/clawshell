@@ -2,7 +2,11 @@
 name = "clawshell"
 version = "0.0.1"
 edition = "2024"
+license-file = "LICENSE"
+homepage = "https://github.com/clawshell/clawshell"
+repository = "https://github.com/clawshell/clawshell"
 exclude = ["npm/*", "docs/*"]
+description = "A security privileged process for the OpenClaw ecosystem."
 
 [dependencies]
 axum = "0.8.8"
