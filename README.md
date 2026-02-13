@@ -67,6 +67,17 @@ scans for PII before forwarding requests upstream.
 
 ## Installation
 
+### Cargo
+
+```bash
+cargo install --locked --git https://github.com/runta-dev/clawshell --tag v0.1.0
+
+# Require privilege to setup security boundary
+sudo clawshell onboard
+```
+
+## NPM
+
 ```bash
 npm install -g @clawshell/clawshell
 
