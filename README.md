@@ -2,7 +2,7 @@
 
 ![ClawShell Banner](docs/images/banner.png)
 
-> **Powered by Runta. The essential safety harness for OpenClaw's PII & API data.**
+> **Powered by Runta. The essential safety harness for OpenClaw's PII & Sensitive Credentials.**
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)](https://github.com/clawshell/clawshell)
