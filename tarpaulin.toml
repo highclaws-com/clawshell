@@ -1,2 +1,3 @@
 [default]
+# Tarpaulin cannot intrument the subprocess, so we need to exclude it from coverage.
 exclude-files = ["src/main.rs"]
