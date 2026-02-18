@@ -12,7 +12,7 @@
 
 ## 📖 Introduction
 
-**ClawShell** is a security-privileged process for the **OpenClaw** ecosystem. It sits between OpenClaw and upstream LLM API providers (OpenAI, Anthropic), performing virtual-to-real API key mapping and DLP (Data Loss Prevention) scanning on request and response bodies.
+**ClawShell** is a security-privileged process for the **OpenClaw** ecosystem. It sits between OpenClaw and upstream LLM API providers (OpenAI, Anthropic), performing virtual-to-real API key mapping and DLP (Data Loss Prevention) scanning on request and response bodies. It can also expose an Email read endpoint with sender allowlist/denylist filtering.
 
 OpenClaw never holds real API keys, only virtual keys that ClawShell swaps for real ones before forwarding requests upstream. Real keys are stored in a privileged config directory (`/etc/clawshell`) protected by Unix file system permissions.
 
@@ -33,12 +33,24 @@ ClawShell scans HTTP request and response bodies for sensitive data using config
 - **Response Scanning**: Optionally scans upstream responses and redacts detected PII before returning to OpenClaw. Streaming (SSE) responses are passed through without scanning.
 - **Custom Patterns**: Define sensitive data patterns using regex in the TOML config, each with a `block` or `redact` action.
 
-### 3. Seamless Integration
+### 3. Email Sender Filtering Endpoint
 
-- **Drop-in Sidecar**: Deploys alongside OpenClaw without requiring re-install — the `clawshell onboard` command automatically configure OpenClaw to point at ClawShell's address and it forwards all requests upstream.
+ClawShell can expose Email endpoints to fetch message lists and message content with sender policy filtering.
+
+- **Explicit Mode**: Configure `email.mode = "allowlist"` or `email.mode = "denylist"` to avoid ambiguous behavior.
+- **Per-Key Email Credentials**: Map virtual keys to Email IMAP credentials under `[[email.accounts]]` using `email`, `app_password`, `imap_host`, and `imap_port`.
+- **Provider Choices in Onboarding**: Built-in Gmail and Outlook presets are supported, plus manual IMAP host/port input for other providers.
+- **Endpoints**:
+  - `GET /v1/email/messages` returns filtered message metadata.
+  - `GET /v1/email/messages/{id}` returns message `metadata`, `headers`, `text_body`, and `html_body`.
+- **Sender Rules**: Supports exact email rules (`alice@example.com`) and domain rules (`@example.com`).
+
+### 4. Seamless Integration
+
+- **Drop-in Sidecar**: Deploys alongside OpenClaw without requiring re-install — the `clawshell onboard` command automatically configures OpenClaw to point at ClawShell's address and forwards all requests upstream.
 - **No External Dependencies**: Uses Unix file system permissions to protect secrets. No IdP, Vault, or external key management service required.
 
-### 4. Ultra Lightweight and Scalable
+### 5. Ultra Lightweight and Scalable
 
 - Runs in under 10MB of memory.
 - Written in Rust with Tokio.
@@ -197,6 +209,23 @@ patterns = [
     { name = "visa_card", regex = '\b4[0-9]{12}(?:[0-9]{3})?\b',    action = "redact" },
     { name = "amex_card", regex = '\b3[47][0-9]{13}\b',              action = "redact" },
 ]
+
+# Email secure endpoint
+[email]
+enabled = true
+mode = "allowlist"
+allow_senders = ["alice@example.com", "@trusted.org"]
+deny_senders = []
+default_max_results = 50
+
+[[email.accounts]]
+virtual_key = "vk-email-001"
+email = "bot@gmail.com"
+app_password = "abcd efgh ijkl mnop"
+imap_host = "imap.gmail.com"
+imap_port = 993
+# Outlook preset example:
+# imap_host = "imap-mail.outlook.com"
 ```
 
 If `start`, `restart`, `stop`, `config --edit`, `onboard`, or `uninstall` reports that migration is required, run:

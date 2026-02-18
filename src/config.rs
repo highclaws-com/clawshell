@@ -31,6 +31,8 @@ pub struct Config {
     pub keys: Vec<KeyMapping>,
     #[serde(default)]
     pub dlp: DlpConfig,
+    #[serde(default, skip_serializing_if = "EmailConfig::is_default")]
+    pub email: EmailConfig,
     #[serde(default = "default_log_level")]
     pub log_level: String,
 }
@@ -123,6 +125,73 @@ pub struct DlpPattern {
     pub action: DlpAction,
 }
 
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct EmailConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<EmailMode>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub allow_senders: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub deny_senders: Vec<String>,
+    #[serde(default = "default_email_max_results")]
+    pub default_max_results: u32,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub accounts: Vec<EmailAccountConfig>,
+}
+
+impl EmailConfig {
+    fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
+impl Default for EmailConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            mode: None,
+            allow_senders: Vec::new(),
+            deny_senders: Vec::new(),
+            default_max_results: default_email_max_results(),
+            accounts: Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum EmailMode {
+    Allowlist,
+    Denylist,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct EmailAccountConfig {
+    pub virtual_key: String,
+    pub email: String,
+    pub app_password: String,
+    #[serde(default = "default_email_imap_host")]
+    pub imap_host: String,
+    #[serde(default = "default_email_imap_port")]
+    pub imap_port: u16,
+}
+
+fn default_email_max_results() -> u32 {
+    50
+}
+
+fn default_email_imap_host() -> String {
+    "imap.gmail.com".to_string()
+}
+
+fn default_email_imap_port() -> u16 {
+    993
+}
+
 impl Config {
     pub(crate) fn from_str_with_validation(
         content: &str,
@@ -147,6 +216,98 @@ impl Config {
             Regex::new(&pattern.regex)
                 .map_err(|e| format!("Invalid DLP regex for '{}': {}", pattern.name, e))?;
         }
+        self.validate_email()?;
+        Ok(())
+    }
+
+    fn validate_email(&self) -> Result<(), Box<dyn std::error::Error>> {
+        let email = &self.email;
+
+        if email.default_max_results == 0 || email.default_max_results > 100 {
+            return Err(format!(
+                "email.default_max_results must be between 1 and 100 (got {})",
+                email.default_max_results
+            )
+            .into());
+        }
+
+        for sender in &email.allow_senders {
+            validate_sender_rule(sender)
+                .map_err(|e| format!("invalid allow_senders entry: {e}"))?;
+        }
+        for sender in &email.deny_senders {
+            validate_sender_rule(sender).map_err(|e| format!("invalid deny_senders entry: {e}"))?;
+        }
+
+        let has_email_settings = email.enabled
+            || email.mode.is_some()
+            || !email.allow_senders.is_empty()
+            || !email.deny_senders.is_empty()
+            || !email.accounts.is_empty();
+
+        if !has_email_settings {
+            return Ok(());
+        }
+
+        let mode = email
+            .mode
+            .ok_or("email.mode is required when email settings are configured")?;
+
+        match mode {
+            EmailMode::Allowlist => {
+                if email.allow_senders.is_empty() {
+                    return Err(
+                        "email.allow_senders must be non-empty when email.mode = \"allowlist\""
+                            .into(),
+                    );
+                }
+                if !email.deny_senders.is_empty() {
+                    return Err(
+                        "email.deny_senders must be empty when email.mode = \"allowlist\"".into(),
+                    );
+                }
+            }
+            EmailMode::Denylist => {
+                if email.deny_senders.is_empty() {
+                    return Err(
+                        "email.deny_senders must be non-empty when email.mode = \"denylist\""
+                            .into(),
+                    );
+                }
+                if !email.allow_senders.is_empty() {
+                    return Err(
+                        "email.allow_senders must be empty when email.mode = \"denylist\"".into(),
+                    );
+                }
+            }
+        }
+
+        if email.enabled && email.accounts.is_empty() {
+            return Err("email.accounts must be non-empty when email.enabled = true".into());
+        }
+
+        for account in &email.accounts {
+            if account.virtual_key.trim().is_empty() {
+                return Err("email.accounts[].virtual_key must be non-empty".into());
+            }
+
+            let email = account.email.trim().to_ascii_lowercase();
+            validate_email(&email)
+                .map_err(|e| format!("email.accounts[].email is invalid: {e}"))?;
+
+            if account.app_password.trim().is_empty() {
+                return Err("email.accounts[].app_password must be non-empty".into());
+            }
+
+            if account.imap_host.trim().is_empty() {
+                return Err("email.accounts[].imap_host must be non-empty".into());
+            }
+
+            if account.imap_port == 0 {
+                return Err("email.accounts[].imap_port must be greater than 0".into());
+            }
+        }
+
         Ok(())
     }
 
@@ -171,6 +332,80 @@ impl Config {
     pub fn listen_addr(&self) -> String {
         format!("{}:{}", self.server.host, self.server.port)
     }
+}
+
+pub(crate) fn validate_sender_rule(rule: &str) -> Result<(), String> {
+    let rule = rule.trim().to_ascii_lowercase();
+    if rule.is_empty() {
+        return Err("sender rule cannot be empty".to_string());
+    }
+    if let Some(domain) = rule.strip_prefix('@') {
+        validate_domain(domain).map_err(|e| format!("domain rule '{rule}' is invalid: {e}"))?;
+        return Ok(());
+    }
+    validate_email(&rule).map_err(|e| format!("email rule '{rule}' is invalid: {e}"))
+}
+
+fn validate_email(email: &str) -> Result<(), String> {
+    let mut parts = email.split('@');
+    let local = parts.next().unwrap_or_default();
+    let domain = parts.next().unwrap_or_default();
+    if parts.next().is_some() {
+        return Err("must contain exactly one '@'".to_string());
+    }
+    if local.is_empty() {
+        return Err("local part cannot be empty".to_string());
+    }
+    if !local.chars().all(is_valid_email_local_char) {
+        return Err("local part contains invalid characters".to_string());
+    }
+    validate_domain(domain)?;
+    Ok(())
+}
+
+fn validate_domain(domain: &str) -> Result<(), String> {
+    if domain.is_empty() {
+        return Err("domain cannot be empty".to_string());
+    }
+    if domain.starts_with('.') || domain.ends_with('.') || domain.contains("..") {
+        return Err("domain has invalid dot placement".to_string());
+    }
+    if !domain.contains('.') {
+        return Err("domain must contain at least one dot".to_string());
+    }
+    if !domain
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || ch == '.' || ch == '-')
+    {
+        return Err("domain contains invalid characters".to_string());
+    }
+    Ok(())
+}
+
+fn is_valid_email_local_char(ch: char) -> bool {
+    ch.is_ascii_alphanumeric()
+        || matches!(
+            ch,
+            '.' | '!'
+                | '#'
+                | '$'
+                | '%'
+                | '&'
+                | '\''
+                | '*'
+                | '+'
+                | '-'
+                | '/'
+                | '='
+                | '?'
+                | '^'
+                | '_'
+                | '`'
+                | '{'
+                | '|'
+                | '}'
+                | '~'
+        )
 }
 
 #[cfg(test)]
@@ -298,5 +533,312 @@ mod tests {
     fn test_config_from_file_is_directory() {
         let result = Config::from_file(Path::new("/tmp"));
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_email_allowlist_mode_valid() {
+        let cfg = r#"
+[server]
+host = "127.0.0.1"
+port = 3000
+
+[upstream]
+openai_base_url = "https://api.openai.com"
+
+[email]
+enabled = true
+mode = "allowlist"
+allow_senders = ["alice@example.com", "@trusted.org"]
+
+[[email.accounts]]
+virtual_key = "vk-email"
+email = "bot@gmail.com"
+app_password = "abcd efgh ijkl mnop"
+"#;
+        let parsed = Config::parse(cfg);
+        assert!(parsed.is_ok());
+    }
+
+    #[test]
+    fn test_email_allowlist_rejects_deny_senders() {
+        let cfg = r#"
+[server]
+host = "127.0.0.1"
+port = 3000
+
+[upstream]
+openai_base_url = "https://api.openai.com"
+
+[email]
+enabled = true
+mode = "allowlist"
+allow_senders = ["alice@example.com"]
+deny_senders = ["bob@example.com"]
+
+[[email.accounts]]
+virtual_key = "vk-email"
+email = "bot@gmail.com"
+app_password = "abcd efgh ijkl mnop"
+"#;
+        let err = Config::parse(cfg).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("email.deny_senders must be empty when email.mode = \"allowlist\"")
+        );
+    }
+
+    #[test]
+    fn test_email_denylist_requires_non_empty_list() {
+        let cfg = r#"
+[server]
+host = "127.0.0.1"
+port = 3000
+
+[upstream]
+openai_base_url = "https://api.openai.com"
+
+[email]
+enabled = true
+mode = "denylist"
+
+[[email.accounts]]
+virtual_key = "vk-email"
+email = "bot@gmail.com"
+app_password = "abcd efgh ijkl mnop"
+"#;
+        let err = Config::parse(cfg).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("email.deny_senders must be non-empty when email.mode = \"denylist\"")
+        );
+    }
+
+    #[test]
+    fn test_email_rejects_invalid_sender_rule() {
+        let cfg = r#"
+[server]
+host = "127.0.0.1"
+port = 3000
+
+[upstream]
+openai_base_url = "https://api.openai.com"
+
+[email]
+enabled = true
+mode = "allowlist"
+allow_senders = ["not-an-email"]
+
+[[email.accounts]]
+virtual_key = "vk-email"
+email = "bot@gmail.com"
+app_password = "abcd efgh ijkl mnop"
+"#;
+        let err = Config::parse(cfg).unwrap_err();
+        assert!(err.to_string().contains("invalid allow_senders entry"));
+    }
+
+    #[test]
+    fn test_email_rejects_invalid_default_max_results() {
+        let cfg = r#"
+[server]
+host = "127.0.0.1"
+port = 3000
+
+[upstream]
+openai_base_url = "https://api.openai.com"
+
+[email]
+enabled = true
+mode = "allowlist"
+allow_senders = ["alice@example.com"]
+default_max_results = 0
+
+[[email.accounts]]
+virtual_key = "vk-email"
+email = "bot@gmail.com"
+app_password = "abcd efgh ijkl mnop"
+"#;
+        let err = Config::parse(cfg).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("email.default_max_results must be between 1 and 100")
+        );
+    }
+
+    #[test]
+    fn test_email_accepts_imap_credentials() {
+        let cfg = r#"
+[server]
+host = "127.0.0.1"
+port = 3000
+
+[upstream]
+openai_base_url = "https://api.openai.com"
+
+[email]
+enabled = true
+mode = "allowlist"
+allow_senders = ["alice@example.com"]
+
+[[email.accounts]]
+virtual_key = "vk-email"
+email = "bot@gmail.com"
+app_password = "abcd efgh ijkl mnop"
+imap_host = "imap.gmail.com"
+imap_port = 993
+"#;
+        let parsed = Config::parse(cfg);
+        assert!(parsed.is_ok());
+    }
+
+    #[test]
+    fn test_email_rejects_missing_app_password() {
+        let cfg = r#"
+[server]
+host = "127.0.0.1"
+port = 3000
+
+[upstream]
+openai_base_url = "https://api.openai.com"
+
+[email]
+enabled = true
+mode = "allowlist"
+allow_senders = ["alice@example.com"]
+
+[[email.accounts]]
+virtual_key = "vk-email"
+email = "bot@gmail.com"
+"#;
+        let err = Config::parse(cfg).unwrap_err();
+        assert!(err.to_string().contains("missing field `app_password`"));
+    }
+
+    #[test]
+    fn test_email_rejects_invalid_account_email() {
+        let cfg = r#"
+[server]
+host = "127.0.0.1"
+port = 3000
+
+[upstream]
+openai_base_url = "https://api.openai.com"
+
+[email]
+enabled = true
+mode = "allowlist"
+allow_senders = ["alice@example.com"]
+
+[[email.accounts]]
+virtual_key = "vk-email"
+email = "botgmail.com"
+app_password = "abcd efgh ijkl mnop"
+"#;
+        let err = Config::parse(cfg).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("email.accounts[].email is invalid")
+        );
+    }
+
+    #[test]
+    fn test_email_rejects_access_token_field() {
+        let cfg = r#"
+[server]
+host = "127.0.0.1"
+port = 3000
+
+[upstream]
+openai_base_url = "https://api.openai.com"
+
+[email]
+enabled = true
+mode = "allowlist"
+allow_senders = ["alice@example.com"]
+
+[[email.accounts]]
+virtual_key = "vk-email"
+access_token = "ya29.legacy"
+email = "bot@gmail.com"
+app_password = "abcd efgh ijkl mnop"
+"#;
+        let err = Config::parse(cfg).unwrap_err();
+        assert!(err.to_string().contains("unknown field `access_token`"));
+    }
+
+    #[test]
+    fn test_email_rejects_oauth_fields() {
+        let cfg = r#"
+[server]
+host = "127.0.0.1"
+port = 3000
+
+[upstream]
+openai_base_url = "https://api.openai.com"
+
+[email]
+enabled = true
+mode = "allowlist"
+allow_senders = ["alice@example.com"]
+
+[[email.accounts]]
+virtual_key = "vk-email"
+client_id = "google-client-id"
+email = "bot@gmail.com"
+app_password = "abcd efgh ijkl mnop"
+"#;
+        let err = Config::parse(cfg).unwrap_err();
+        assert!(err.to_string().contains("unknown field `client_id`"));
+    }
+
+    #[test]
+    fn test_email_rejects_missing_email() {
+        let cfg = r#"
+[server]
+host = "127.0.0.1"
+port = 3000
+
+[upstream]
+openai_base_url = "https://api.openai.com"
+
+[email]
+enabled = true
+mode = "allowlist"
+allow_senders = ["alice@example.com"]
+
+[[email.accounts]]
+virtual_key = "vk-email"
+app_password = "abcd efgh ijkl mnop"
+"#;
+        let err = Config::parse(cfg).unwrap_err();
+        assert!(err.to_string().contains("missing field `email`"));
+    }
+
+    #[test]
+    fn test_email_rejects_invalid_imap_port() {
+        let cfg = r#"
+[server]
+host = "127.0.0.1"
+port = 3000
+
+[upstream]
+openai_base_url = "https://api.openai.com"
+
+[email]
+enabled = true
+mode = "allowlist"
+allow_senders = ["alice@example.com"]
+
+[[email.accounts]]
+virtual_key = "vk-email"
+email = "bot@gmail.com"
+app_password = "abcd efgh ijkl mnop"
+imap_port = 0
+"#;
+        let err = Config::parse(cfg).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("email.accounts[].imap_port must be greater than 0")
+        );
     }
 }
