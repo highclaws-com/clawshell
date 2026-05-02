@@ -856,8 +856,8 @@ async fn forward_oauth_request(
         .oauth_registry
         .response_format(oauth_provider_id, &original_path)
         .map_err(|e| format!("OAuth response format check failed: {e}"))?;
-    // Check the transformed body for stream flag (fixups may force stream: true)
-    let stream_requested = serde_json::from_slice::<serde_json::Value>(&body)
+    // Check the original body for stream flag (so we know if the client actually wants a stream)
+    let stream_requested = serde_json::from_slice::<serde_json::Value>(&body_bytes)
         .ok()
         .and_then(|v| v.get("stream")?.as_bool())
         .unwrap_or(false);
