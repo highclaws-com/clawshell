@@ -1022,7 +1022,7 @@ async fn maybe_translate_response(
         None => return Ok(response),
     };
 
-    let upstream_is_sse = response
+    let mut upstream_is_sse = response
         .headers()
         .get("content-type")
         .and_then(|v| v.to_str().ok())
@@ -1058,6 +1058,10 @@ async fn maybe_translate_response(
         .await
         .map_err(|e| format!("failed to read response body for translation: {e}"))?
         .to_bytes();
+
+    if !upstream_is_sse {
+        upstream_is_sse = body_bytes.starts_with(b"event: ") || body_bytes.starts_with(b"data: ");
+    }
 
     match format {
         crate::oauth::ResponseFormat::ResponsesApi => {
