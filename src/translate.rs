@@ -653,6 +653,7 @@ pub struct TranslateStream {
     model: Option<String>,
     tool_call_indices: HashMap<u64, usize>,
     next_tool_call_index: usize,
+    stats: Option<Arc<Stats>>,
     output_buffer: Vec<u8>,
 }
 
@@ -668,7 +669,7 @@ impl std::fmt::Debug for TranslateStream {
 }
 
 impl TranslateStream {
-    pub fn new(body: Body) -> Self {
+    pub fn new(body: Body, stats: Option<Arc<Stats>>) -> Self {
         use futures_util::StreamExt;
         use http_body_util::BodyStream;
 
@@ -686,6 +687,7 @@ impl TranslateStream {
             model: None,
             tool_call_indices: HashMap::new(),
             next_tool_call_index: 0,
+            stats,
             output_buffer: Vec::new(),
         }
     }
@@ -698,6 +700,10 @@ impl TranslateStream {
             if line.is_empty() {
                 self.output_buffer.extend_from_slice(b"\n");
                 continue;
+            }
+
+            if let Some(stats) = self.stats.as_ref() {
+                record_responses_sse_usage(&line, stats);
             }
 
             let rid = &mut self.response_id;
@@ -740,6 +746,9 @@ impl Stream for TranslateStream {
                         let remaining = std::mem::take(&mut this.buffer);
                         let line = String::from_utf8_lossy(&remaining).trim().to_string();
                         if !line.is_empty() {
+                            if let Some(stats) = this.stats.as_ref() {
+                                record_responses_sse_usage(&line, stats);
+                            }
                             if let Some(translated) = translate_sse_line(
                                 &line,
                                 &mut this.response_id,
@@ -761,9 +770,34 @@ impl Stream for TranslateStream {
     }
 }
 
-/// Wrap a Body in a TranslateStream and return a new Body.
-pub fn wrap_body_with_translate_stream(body: Body) -> Body {
-    Body::from_stream(TranslateStream::new(body))
+fn record_responses_sse_usage(line: &str, stats: &Stats) {
+    let Some(json_str) = line.strip_prefix("data: ") else {
+        return;
+    };
+    if json_str.starts_with("[DONE]") {
+        return;
+    }
+
+    let Ok(event) = serde_json::from_str::<Value>(json_str) else {
+        return;
+    };
+    if event.get("type").and_then(Value::as_str) != Some("response.completed") {
+        return;
+    }
+    let Some(response) = event.get("response") else {
+        return;
+    };
+    if response.get("usage").is_none() {
+        return;
+    }
+
+    stats.record_tokens_from_usage(response.to_string().as_bytes());
+}
+
+/// Wrap a Body in a TranslateStream that also records upstream Responses API
+/// usage events before translating them away.
+pub fn wrap_body_with_translate_stream_and_stats(body: Body, stats: Arc<Stats>) -> Body {
+    Body::from_stream(TranslateStream::new(body, Some(stats)))
 }
 
 // ---------------------------------------------------------------------------
@@ -1519,6 +1553,29 @@ mod tests {
             result, "event: message",
             "Non-data lines pass through unchanged"
         );
+    }
+
+    #[test]
+    fn test_translate_stream_counts_responses_usage() {
+        let stats = Arc::new(Stats::new(None));
+        let sse = "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_1\",\"model\":\"gpt-5.2-codex\"}}\n\
+                   data: {\"type\":\"response.output_text.delta\",\"delta\":\"hi\"}\n\
+                   data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_1\",\"model\":\"gpt-5.2-codex\",\"status\":\"completed\",\"usage\":{\"input_tokens\":100,\"output_tokens\":19}}}\n";
+        let body = Body::from(sse);
+        let wrapped = wrap_body_with_translate_stream_and_stats(body, stats.clone());
+
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap();
+        rt.block_on(async {
+            use http_body_util::BodyExt;
+            wrapped.collect().await.unwrap();
+        });
+
+        let snap = stats.snapshot();
+        assert_eq!(snap.prompt_tokens_total, 100);
+        assert_eq!(snap.completion_tokens_total, 19);
+        assert_eq!(snap.total_tokens_total, 119);
     }
 
     #[test]

@@ -490,8 +490,7 @@ async fn handle_email_message_content(
 
 /// Management endpoint that returns running counters for total requests,
 /// upstream token usage, and per-sender email-filter activity. Only
-/// reachable from loopback peers; streaming (SSE) responses are not
-/// included in token totals (see `handle_request`).
+/// reachable from loopback peers.
 async fn handle_stats(
     State(state): State<AppState>,
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
@@ -750,8 +749,8 @@ async fn handle_request(
     // 5. Response processing.
     // Non-streaming responses are buffered so we can (a) record upstream
     // token usage for stats and (b) optionally DLP-redact before sending.
-    // SSE streams are handled by the existing DLP SSE wrapper; we do not
-    // count tokens from SSE usage events.
+    // SSE streams are handled by stream wrappers that can record usage
+    // events before forwarding chunks to the client.
     let is_streaming = response
         .headers()
         .get("content-type")
@@ -917,6 +916,7 @@ async fn forward_oauth_request(
                 needs_translation,
                 stream_requested,
                 response_format,
+                state.stats.clone(),
             )
             .await;
         }
@@ -967,6 +967,7 @@ async fn forward_oauth_request(
             needs_translation,
             stream_requested,
             response_format,
+            state.stats.clone(),
         )
         .await;
     }
@@ -995,6 +996,7 @@ async fn forward_oauth_request(
             needs_translation,
             stream_requested,
             response_format,
+            state.stats.clone(),
         )
         .await;
     }
@@ -1004,6 +1006,7 @@ async fn forward_oauth_request(
         needs_translation,
         stream_requested,
         response_format,
+        state.stats.clone(),
     )
     .await
 }
@@ -1014,6 +1017,7 @@ async fn maybe_translate_response(
     needs_translation: bool,
     stream_requested: bool,
     response_format: Option<crate::oauth::ResponseFormat>,
+    stats: Arc<Stats>,
 ) -> Result<Response, String> {
     // Use response_format if available; fall back to needs_translation for backwards compat
     let format = match response_format {
@@ -1040,7 +1044,10 @@ async fn maybe_translate_response(
         let translated_body = match format {
             crate::oauth::ResponseFormat::ResponsesApi => {
                 debug!("Wrapping streaming response with ResponsesApi translator");
-                crate::translate::wrap_body_with_translate_stream(body)
+                crate::translate::wrap_body_with_translate_stream_and_stats(
+                    body,
+                    stats.clone(),
+                )
             }
         };
         return Ok(Response::from_parts(parts, translated_body));
