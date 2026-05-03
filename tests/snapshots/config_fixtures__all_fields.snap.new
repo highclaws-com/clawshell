@@ -1,5 +1,6 @@
 ---
 source: src/config.rs
+assertion_line: 687
 expression: snapshot
 ---
 server:

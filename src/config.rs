@@ -27,6 +27,22 @@ impl Provider {
     }
 }
 
+pub fn parse_provider(s: &str) -> (Provider, Option<String>) {
+    let mut parts = s.splitn(2, ':');
+    let prot_str = parts.next().unwrap();
+    let upstream_key = parts.next().map(|s| s.to_string());
+
+    let protocol = match prot_str {
+        "openrouter" => Provider::Openrouter,
+        "anthropic" => Provider::Anthropic,
+        "minimax" => Provider::Minimax,
+        "opencode" => Provider::Opencode,
+        _ => Provider::Openai, // defaults to openai if unknown
+    };
+
+    (protocol, upstream_key)
+}
+
 #[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
@@ -72,7 +88,6 @@ const SERVER_HOST_ENV: &str = "CLAWSHELL_SERVER_HOST";
 const SERVER_PORT_ENV: &str = "CLAWSHELL_SERVER_PORT";
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
-#[serde(deny_unknown_fields)]
 pub struct UpstreamConfig {
     #[serde(default = "default_openai_base_url")]
     pub openai_base_url: String,
@@ -88,6 +103,8 @@ pub struct UpstreamConfig {
     pub opencode_zen_base_url: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub opencode_go_base_url: Option<String>,
+    #[serde(flatten)]
+    pub custom_urls: BTreeMap<String, String>,
 }
 
 fn default_anthropic_version() -> String {
@@ -116,8 +133,8 @@ pub struct KeyMapping {
     /// Required when auth = "static" (or omitted). Optional when auth = "oauth".
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub real_key: Option<String>,
-    #[serde(default)]
-    pub provider: Provider,
+    #[serde(default = "default_provider")]
+    pub provider: String,
     /// Authentication method for this key. Defaults to "static".
     #[serde(default)]
     pub auth: KeyAuthMethod,
@@ -125,6 +142,10 @@ pub struct KeyMapping {
     /// Required when auth = "oauth".
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub oauth_provider: Option<String>,
+}
+
+fn default_provider() -> String {
+    "openai".to_string()
 }
 
 #[derive(Debug, Default, Deserialize, Serialize, Clone, Copy, PartialEq, Eq)]
@@ -404,31 +425,33 @@ impl Config {
         Ok(())
     }
 
-    /// Returns a map of static key mappings: virtual_key → (real_key, provider).
+    /// Returns a map of static key mappings: virtual_key → (real_key, provider, upstream_url_key).
     /// OAuth-backed keys are excluded.
     #[allow(dead_code)]
-    pub fn key_map(&self) -> BTreeMap<String, (String, Provider)> {
+    pub fn key_map(&self) -> BTreeMap<String, (String, Provider, Option<String>)> {
         self.keys
             .iter()
             .filter(|k| k.auth == KeyAuthMethod::Static)
             .filter_map(|k| {
-                k.real_key
-                    .clone()
-                    .map(|rk| (k.virtual_key.clone(), (rk, k.provider)))
+                k.real_key.clone().map(|rk| {
+                    let (provider, upstream_url_key) = parse_provider(&k.provider);
+                    (k.virtual_key.clone(), (rk, provider, upstream_url_key))
+                })
             })
             .collect()
     }
 
-    /// Returns a map of OAuth key mappings: virtual_key → (oauth_provider_id, provider).
+    /// Returns a map of OAuth key mappings: virtual_key → (oauth_provider_id, provider, upstream_url_key).
     #[allow(dead_code)]
-    pub fn oauth_key_map(&self) -> BTreeMap<String, (String, Provider)> {
+    pub fn oauth_key_map(&self) -> BTreeMap<String, (String, Provider, Option<String>)> {
         self.keys
             .iter()
             .filter(|k| k.auth == KeyAuthMethod::OAuth)
             .filter_map(|k| {
-                k.oauth_provider
-                    .clone()
-                    .map(|op| (k.virtual_key.clone(), (op, k.provider)))
+                k.oauth_provider.clone().map(|op| {
+                    let (provider, upstream_url_key) = parse_provider(&k.provider);
+                    (k.virtual_key.clone(), (op, provider, upstream_url_key))
+                })
             })
             .collect()
     }
@@ -457,6 +480,10 @@ impl Config {
                 .clone()
                 .unwrap_or_else(|| Provider::Opencode.default_base_url().to_string()),
         }
+    }
+
+    pub fn upstream_url_override(&self, key: &str) -> Option<String> {
+        self.upstream.custom_urls.get(key).cloned()
     }
 
     pub fn listen_addr(&self) -> String {
@@ -610,7 +637,7 @@ mod tests {
         listen_addr: String,
         openai_upstream_url: String,
         anthropic_upstream_url: String,
-        key_map: BTreeMap<String, (String, Provider)>,
+        key_map: BTreeMap<String, (String, Provider, Option<String>)>,
     }
 
     fn fixture_paths(root: &str) -> Result<Vec<PathBuf>, String> {

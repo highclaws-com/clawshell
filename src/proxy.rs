@@ -42,19 +42,30 @@ impl ProxyClient {
         real_key: &str,
         body: Bytes,
         provider: Provider,
+        upstream_url_override: Option<&str>,
     ) -> Result<Response, ProxyError> {
-        let base_url = self.upstream_urls.get(&provider).ok_or_else(|| {
-            ProxyError::Internal(format!("No upstream URL for provider {:?}", provider))
-        })?;
-        let upstream_url = format!(
-            "{}{}",
-            base_url,
-            uri.path_and_query()
-                .map(|pq| pq.as_str())
-                .unwrap_or(uri.path())
-        );
+        let upstream_url = if let Some(base) = upstream_url_override {
+            format!(
+                "{}{}",
+                base,
+                uri.path_and_query()
+                    .map(|pq| pq.as_str())
+                    .unwrap_or_default()
+            )
+        } else {
+            let base_url = self.upstream_urls.get(&provider).ok_or_else(|| {
+                ProxyError::Internal(format!("No upstream URL for provider {:?}", provider))
+            })?;
+            format!(
+                "{}{}",
+                base_url,
+                uri.path_and_query()
+                    .map(|pq| pq.as_str())
+                    .unwrap_or_default()
+            )
+        };
 
-        debug!(
+        trace!(
             %upstream_url,
             %method,
             provider = ?provider,
@@ -350,6 +361,7 @@ mod tests {
                 "sk-test",
                 Bytes::from("{}"),
                 Provider::Anthropic,
+                None,
             )
             .await;
 

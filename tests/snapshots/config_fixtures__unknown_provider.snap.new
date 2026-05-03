@@ -1,5 +1,6 @@
 ---
 source: src/config.rs
+assertion_line: 702
 expression: err.to_string()
 ---
 TOML parse error at line 1, column 1

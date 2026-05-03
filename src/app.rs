@@ -74,11 +74,14 @@ impl AppState {
                     provider_id: key.oauth_provider.clone().unwrap_or_default(),
                 },
             };
+            let (provider, upstream_url_key) = crate::config::parse_provider(&key.provider);
+            let upstream_url = upstream_url_key.and_then(|k| config.upstream_url_override(&k));
             key_mappings.insert(
                 key.virtual_key.clone(),
                 ResolvedKey {
                     source,
-                    provider: key.provider,
+                    provider,
+                    upstream_url,
                 },
             );
         }
@@ -556,6 +559,7 @@ async fn handle_request(
     })?;
     let source = resolved.source.clone();
     let provider = resolved.provider;
+    let upstream_url = resolved.upstream_url.clone();
 
     debug!(
         method = %method,
@@ -652,6 +656,7 @@ async fn handle_request(
                 &real_key,
                 body_bytes,
                 provider,
+                upstream_url.as_deref(),
             )
             .await
             .map_err(|e| {
@@ -672,6 +677,7 @@ async fn handle_request(
             body_bytes,
             provider,
             &provider_id,
+            upstream_url.as_deref(),
         )
         .await
         .map_err(|e| {
@@ -715,6 +721,7 @@ async fn handle_request(
                             &real_key,
                             original_body,
                             provider,
+                            upstream_url.as_deref(),
                         )
                         .await
                         .map_err(|e| {
@@ -729,6 +736,7 @@ async fn handle_request(
                         original_body,
                         provider,
                         &provider_id,
+                        upstream_url.as_deref(),
                     )
                     .await
                     .map_err(|e| {
@@ -821,6 +829,7 @@ async fn forward_oauth_request(
     body_bytes: Bytes,
     provider: Provider,
     oauth_provider_id: &str,
+    upstream_url_override: Option<&str>,
 ) -> Result<Response, String> {
     // 1. Inject auth headers
     let mut auth_headers = HeaderMap::new();
@@ -877,11 +886,15 @@ async fn forward_oauth_request(
     }
 
     // 3. Optionally get upstream URL override
-    let upstream_url = state
-        .oauth_registry
-        .upstream_url(oauth_provider_id)
-        .await
-        .map_err(|e| format!("OAuth upstream URL resolution failed: {e}"))?;
+    let upstream_url = if let Some(override_url) = upstream_url_override {
+        Some(override_url.to_string())
+    } else {
+        state
+            .oauth_registry
+            .upstream_url(oauth_provider_id)
+            .await
+            .map_err(|e| format!("OAuth upstream URL resolution failed: {e}"))?
+    };
 
     // 4. Forward the request
     let response = state
@@ -1044,10 +1057,7 @@ async fn maybe_translate_response(
         let translated_body = match format {
             crate::oauth::ResponseFormat::ResponsesApi => {
                 debug!("Wrapping streaming response with ResponsesApi translator");
-                crate::translate::wrap_body_with_translate_stream_and_stats(
-                    body,
-                    stats.clone(),
-                )
+                crate::translate::wrap_body_with_translate_stream_and_stats(body, stats.clone())
             }
         };
         return Ok(Response::from_parts(parts, translated_body));

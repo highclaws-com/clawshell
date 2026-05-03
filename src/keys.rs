@@ -13,6 +13,7 @@ pub enum KeySource {
 pub struct ResolvedKey {
     pub source: KeySource,
     pub provider: Provider,
+    pub upstream_url: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -75,6 +76,7 @@ mod tests {
                             real_key: rk.to_string(),
                         },
                         provider: p,
+                        upstream_url: None,
                     },
                 )
             })
@@ -156,6 +158,7 @@ mod tests {
                     provider_id: "codex".to_string(),
                 },
                 provider: Provider::Openai,
+                upstream_url: None,
             },
         );
         let km = KeyManager::new(map);

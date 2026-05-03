@@ -30,6 +30,7 @@ fn make_app(upstream_url: &str) -> axum::Router {
                 real_key: "sk-real-1".to_string(),
             },
             provider: Provider::Openai,
+            upstream_url: None,
         },
     );
     key_map.insert(
@@ -39,6 +40,7 @@ fn make_app(upstream_url: &str) -> axum::Router {
                 real_key: "sk-real-2".to_string(),
             },
             provider: Provider::Openai,
+            upstream_url: None,
         },
     );
 
@@ -91,6 +93,7 @@ fn make_app_with_anthropic(upstream_url: &str) -> axum::Router {
                 real_key: "sk-real-1".to_string(),
             },
             provider: Provider::Openai,
+            upstream_url: None,
         },
     );
     key_map.insert(
@@ -100,6 +103,7 @@ fn make_app_with_anthropic(upstream_url: &str) -> axum::Router {
                 real_key: "sk-ant-real-1".to_string(),
             },
             provider: Provider::Anthropic,
+            upstream_url: None,
         },
     );
 
@@ -701,6 +705,7 @@ async fn test_proxy_error_on_unreachable_upstream() {
                         real_key: "sk-1".to_string(),
                     },
                     provider: Provider::Openai,
+                    upstream_url: None,
                 },
             )]
             .into_iter()
@@ -844,6 +849,7 @@ async fn test_anthropic_dlp_blocks_sensitive_data() {
                 real_key: "sk-ant-key".to_string(),
             },
             provider: Provider::Anthropic,
+            upstream_url: None,
         },
     );
 
@@ -943,6 +949,7 @@ async fn test_openai_and_openrouter_keys_map_to_distinct_real_keys() {
                 real_key: "sk-openai-real".to_string(),
             },
             provider: Provider::Openai,
+            upstream_url: None,
         },
     );
     key_map.insert(
@@ -952,6 +959,7 @@ async fn test_openai_and_openrouter_keys_map_to_distinct_real_keys() {
                 real_key: "sk-openrouter-real".to_string(),
             },
             provider: Provider::Openrouter,
+            upstream_url: None,
         },
     );
 
@@ -1017,6 +1025,7 @@ async fn test_opencode_key_uses_zen_upstream() {
                 real_key: "sk-opencode-real".to_string(),
             },
             provider: Provider::Opencode,
+            upstream_url: None,
         },
     );
 
@@ -1060,6 +1069,7 @@ fn make_app_with_redact(upstream_url: &str) -> axum::Router {
                 real_key: "sk-real-1".to_string(),
             },
             provider: Provider::Openai,
+            upstream_url: None,
         },
     );
 
@@ -1283,6 +1293,7 @@ async fn test_response_dlp_disabled() {
                 real_key: "sk-real-1".to_string(),
             },
             provider: Provider::Openai,
+            upstream_url: None,
         },
     );
     let patterns = vec![DlpPattern {
