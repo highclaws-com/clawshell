@@ -555,7 +555,10 @@ async fn handle_request(
             virtual_key = %virtual_key,
             "Unknown virtual key"
         );
-        error_response(StatusCode::UNAUTHORIZED, "Unknown API key")
+        error_response(
+            StatusCode::UNAUTHORIZED,
+            "Unknown API key: no model is set for this agent",
+        )
     })?;
     let source = resolved.source.clone();
     let provider = resolved.provider;
