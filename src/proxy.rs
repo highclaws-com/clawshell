@@ -256,10 +256,7 @@ fn filter_hop_by_hop_headers(headers: &HeaderMap) -> HeaderMap {
     for (name, value) in headers {
         let name_str = name.as_str().to_lowercase();
         // Skip hop-by-hop headers and the original auth header
-        // Also skip accept-encoding: this proxy never decodes, and the
-        // model pool can relay a body labelled `gzip` that is not gzip.
         if name_str == "host"
-            || name_str == "accept-encoding"
             || name_str == "authorization"
             || name_str == "connection"
             || name_str == "content-length"
