@@ -1,7 +1,7 @@
 use crate::config::Provider;
 
 use axum::body::Body;
-use axum::http::header::AUTHORIZATION;
+use axum::http::header::{ACCEPT_ENCODING, AUTHORIZATION};
 use axum::http::{HeaderMap, HeaderValue, Method, StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
 use bytes::Bytes;
@@ -255,19 +255,27 @@ fn filter_hop_by_hop_headers(headers: &HeaderMap) -> HeaderMap {
     let mut filtered = HeaderMap::new();
     for (name, value) in headers {
         let name_str = name.as_str().to_lowercase();
-        // Skip hop-by-hop headers and the original auth header
+        // Skip hop-by-hop headers and the original auth header.
+        // The client's accept-encoding is replaced with `identity` below.
         if name_str == "host"
             || name_str == "authorization"
             || name_str == "connection"
             || name_str == "content-length"
             || name_str == "transfer-encoding"
             || name_str == "x-api-key"
+            || name_str == "accept-encoding"
         {
             trace!(header = %name_str, "Skipping hop-by-hop/auth header");
             continue;
         }
         filtered.insert(name.clone(), value.clone());
     }
+    // reqwest is built without decompression features and the SSE/DLP
+    // wrappers rewrite bodies line-by-line, so a compressed upstream body
+    // would be corrupted while `content-encoding` is still forwarded to the
+    // client. Explicitly require an uncompressed reply: unlike an absent
+    // header, `identity` forbids the server from choosing an encoding.
+    filtered.insert(ACCEPT_ENCODING, HeaderValue::from_static("identity"));
     filtered
 }
 
@@ -390,11 +398,18 @@ mod tests {
         headers.insert("content-type", "application/json".parse().unwrap());
         headers.insert("host", "localhost".parse().unwrap());
         headers.insert("x-custom", "custom-value".parse().unwrap());
+        headers.insert("accept-encoding", "gzip, deflate".parse().unwrap());
 
         let filtered = filter_hop_by_hop_headers(&headers);
         assert!(filtered.get("authorization").is_none());
         assert!(filtered.get("host").is_none());
+        assert_eq!(filtered.get("accept-encoding").unwrap(), "identity");
+        assert_eq!(filtered.get_all("accept-encoding").iter().count(), 1);
         assert!(filtered.get("content-type").is_some());
         assert!(filtered.get("x-custom").is_some());
+
+        // identity is requested even when the client sent no accept-encoding
+        let filtered = filter_hop_by_hop_headers(&HeaderMap::new());
+        assert_eq!(filtered.get("accept-encoding").unwrap(), "identity");
     }
 }
