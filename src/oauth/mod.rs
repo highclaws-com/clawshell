@@ -1,6 +1,7 @@
 mod storage;
 
 pub mod codex;
+pub mod xai;
 
 pub use storage::TokenStorage;
 

@@ -771,7 +771,7 @@ async fn cmd_start_inner(config_path: &str) -> Result<(), Box<dyn std::error::Er
 async fn build_oauth_registry(
     config: &Config,
 ) -> Result<crate::oauth::OAuthRegistry, Box<dyn std::error::Error>> {
-    use crate::oauth::{OAuthRegistry, TokenStorage, codex::CodexProvider};
+    use crate::oauth::{OAuthRegistry, TokenStorage, codex::CodexProvider, xai::XaiProvider};
     use std::sync::Arc;
 
     let storage = TokenStorage::new(PathBuf::from("/etc/clawshell/oauth"));
@@ -784,6 +784,10 @@ async fn build_oauth_registry(
         match provider_config.provider.as_str() {
             "codex" => {
                 let provider = CodexProvider::from_config(provider_config);
+                registry.register(Arc::new(provider));
+            }
+            "xai" => {
+                let provider = XaiProvider::from_config(provider_config);
                 registry.register(Arc::new(provider));
             }
             other => {
